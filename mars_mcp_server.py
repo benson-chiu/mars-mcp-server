@@ -27,7 +27,7 @@ MARS_PASSWORD = "AccP@88w0rdd"
 ### MARS MCP tools ###
 @mcp.tool()
 async def mars_get_controller_connection_status_string() -> str:
-    """Get MARS controller connection status
+    """Get MARS controller connection status.
 
     Note:
         MARS is a hardware independent controller for building
@@ -37,6 +37,7 @@ async def mars_get_controller_connection_status_string() -> str:
         Returns a string containing the total count of controllers,
         the count of controllers online, and the count of controllers offline.
     """
+    # Get MARS cluster
     url = f"{MARS_SERVER_URL}/mars/v1/cluster"
     response = await mars_get_request(url)
     resp_json = response.json()
@@ -61,7 +62,7 @@ async def mars_get_controller_connection_status_string() -> str:
 
 @mcp.tool()
 async def mars_get_switch_connection_status_string() -> str:
-    """Get MARS switch connection status
+    """Get MARS switch connection status.
 
     Note:
         MARS is a hardware independent controller for building
@@ -89,7 +90,10 @@ async def mars_get_switch_connection_status_string() -> str:
     if not resp_json or "devices" not in resp_json:
         return "Unable to obtain MARS switch connection status."
 
-    switch_online_count = len(resp_json["devices"])
+    switch_online_count = 0
+    for device in resp_json["devices"]:
+        if device.get("available"):
+            switch_online_count += 1
 
     return (
         f"Total: {switch_total_count}\n"
@@ -1112,74 +1116,254 @@ async def mars_get_switch_recent_network_packet_count_ranking_chart() -> str:
 
     return "".join(results)
 
-### Old MARS MCP tools test ###
 @mcp.tool()
-async def get_mars_api_calls_image_url(time_start: str, time_end: str) -> str:
-    """Retrieve MARS API call statistics within a specific time range, generate a line chart based on the data,
-    upload the chart image to a cloud server, and return the image URL.
-    This tool returns a direct URL to a image that visualizes the number of API requests over time.
-    Note: MARS is a hardware independent controller.
+async def mars_get_switch_force_topology_diagram() -> str:
+    """Get MARS switch force topology diagram.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
 
-    IMPORTANT:
-        When you receive the image URL, you MUST display it using Markdown syntax immediately.
-        The correct Markdown format to embed the image: ![](image_url)
-        Example: ![](http://your.server/path/image.png)
-        Do NOT simply return the URL as plain text. Always wrap it in Markdown format so the image can be rendered.
-
-    Args:
-        time_start: Starting timestamp of analyze time range, in ISO 8601 format (e.g., "2025-08-01T00:00:00Z").
-        time_end: Ending timestamp of analyze time range, in ISO 8601 format (e.g., "2025-08-01T00:00:00Z").
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Returns:
-        On success: A URL (str) pointing to the generated chart image.
-        On failure: A string containing an error message.
+        Returns Mermaid.js chart syntax of the switch force topology diagram.
+        You just need to output it "as is", don't make any inferences or modifications,
+        don't add any connections or nodes.
     """
-
-    time_start_dt = datetime.fromisoformat(time_start.replace("Z", "+00:00"))
-    time_end_dt = datetime.fromisoformat(time_end.replace("Z", "+00:00"))
-    resolution_second = int((time_end_dt - time_start_dt).total_seconds() / 30)
-    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/nginx/{time_start}/{time_end}/{resolution_second}"
-    print(url)
+    # Get MARS devices config
+    url = f"{MARS_SERVER_URL}/mars/v1/devices/config"
     response = await mars_get_request(url)
     resp_json = response.json()
 
-    if not resp_json or "statistic" not in resp_json:
-        return "Unable to fetch statistic or no statistic found."
+    if not resp_json or "configs" not in resp_json:
+        return "Unable to obtain MARS switch configs."
 
-    # Get statistic
-    statistic_data = resp_json.get("statistic", [])
-    if not statistic_data:
-        return "No any statistics tada."
+    if not resp_json["configs"]:
+        return "No switch configs."
 
-    x = [
-        datetime.fromisoformat(item["timepoint"].replace("Z", "+00:00"))
-        for item in statistic_data
-    ]
-    y = [item["count"] for item in statistic_data]
+    # In switch_dict, includes name and IP for each switch.
+    # e.g. {"<switch ID>": {"name": <switch name>, "ip": <switch IP>}}
+    switch_dict = {}
+    for config in resp_json["configs"]:
+        switch_id = config.get("id")
+        switch_name = config.get("name")
+        switch_ip = config.get("mgmtIpAddress")
+        switch_dict[switch_id] = {"name": switch_name, "ip": switch_ip, "state": False}
 
-    # Draw chart
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(x, y, marker='o', linestyle='-', color='blue')
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Count")
-    ax.set_title("Request Counts Over Time")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    plt.xticks(rotation=45)
+    # Get MARS devices
+    url = f"{MARS_SERVER_URL}/mars/v1/devices"
+    response = await mars_get_request(url)
+    resp_json = response.json()
 
-    # Save image
-    image_name = "mars_api_calls_image.png"
-    image_path = os.path.join(FILE_DIR, image_name)
+    if not resp_json or "devices" not in resp_json:
+        return "Unable to obtain MARS switch connection status."
 
-    plt.tight_layout()
-    plt.savefig(image_path, format='png')
-    plt.close()
+    for device in resp_json["devices"]:
+        switch_id = device.get("id")
+        switch_state = device.get("available")
+        if switch_state and switch_id in switch_dict:
+            switch_dict[switch_id]["state"] = True
 
-    return f"{MCP_SERVER_URL}/{FILE_DIR}/{image_name}"
+    # Get MARS switch link
+    url = f"{MARS_SERVER_URL}/mars/v1/links"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "links" not in resp_json:
+        return "Unable to obtain MARS switch links."
+
+    if not resp_json["links"]:
+        return "No switch links."
+
+    link_set = set()
+    for link in resp_json["links"]:
+        src_switch = link.get("src").get("device")
+        dst_switch = link.get("dst").get("device")
+        src_port = link.get("src").get("port")
+        dst_port = link.get("dst").get("port")
+        link_set.add((src_switch, dst_switch, src_port, dst_port))
+
+    link_pair_set = set()
+    for src, dst, src_port, dst_port in link_set:
+        # Check if there is a reverse connection
+        if (dst, src, dst_port, src_port) in link_set:
+            src_name = switch_dict[src]["name"]
+            dst_name = switch_dict[dst]["name"]
+
+            # Sort to avoid duplicate direction records
+            pair = tuple(sorted((src_name, dst_name)))
+
+            # Avoid duplicate records
+            if src_name < dst_name:
+                pair = (
+                    (src_name, src_port),
+                    (dst_name, dst_port)
+                )
+            else:
+                pair = (
+                    (dst_name, dst_port),
+                    (src_name, src_port)
+                )
+
+            if pair not in link_pair_set:
+                link_pair_set.add(pair)
+
+    return (mermaid_chart_count_prompt() +
+            generate_force_topology(nodes=switch_dict, links=link_pair_set))
 
 @mcp.tool()
-async def get_apps() -> str:
-    """Get all installed applications in MARS.
-    Note: MARS is a hardware independent controller.
+async def mars_get_controller_information_string() -> str:
+    """Get MARS controller information.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns a string containing controller IP, controller port,
+        controller status, and controller last update time.
+    """
+    # Get MARS cluster
+    url = f"{MARS_SERVER_URL}/mars/v1/cluster"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "nodes" not in resp_json:
+        return "Unable to obtain MARS controller information."
+
+    if not resp_json["nodes"]:
+        return "No MARS controller connected."
+
+    results = []
+    for node in resp_json["nodes"]:
+        last_update = node.get('lastUpdate')
+        if last_update:
+            # Convert to seconds
+            timestamp_sec = int(last_update) / 1000
+
+            # Defines the time zone of UTC+8
+            tz_utc_8 = timezone(timedelta(hours=8))
+
+            # Convert to datetime format (UTC+8)
+            dt = datetime.fromtimestamp(timestamp_sec, tz=tz_utc_8)
+            last_update = dt.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            last_update = 'Unknown'
+            
+        result_str = (
+            f"IP: {node.get('ip', 'Unknown')}\n"
+            f"Port: {node.get('tcpPort', 'Unknown')}\n"
+            f"Status: {node.get('status', 'Unknown')}\n"
+            f"Last update: {last_update}"
+        )
+        results.append(result_str.strip()) # Remove extra indentation spaces
+
+    return "\n---\n".join(results)
+
+@mcp.tool()
+async def mars_get_switch_information_string() -> str:
+    """Get MARS switch information.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns a string containing switch's name, IP, MAC, type, role, rack, availability,
+        default config, protocol, network OS, manufacturer, serial number, hardware, and software.
+    """
+    # Get MARS devices
+    url = f"{MARS_SERVER_URL}/mars/v1/devices"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "devices" not in resp_json:
+        return "Unable to obtain MARS switch connection status."
+
+    # In switch_available_dict, includes switch ID and available status for each switch.
+    # e.g. {"<switch ID>": <available status bool>}
+    switch_available_dict = {
+        device.get("id"): bool(device.get("available"))
+        for device in resp_json["devices"]
+    }
+
+    # Get MARS devices config
+    url = f"{MARS_SERVER_URL}/mars/v1/devices/config"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "configs" not in resp_json:
+        return "Unable to obtain MARS switch configs."
+
+    if not resp_json["configs"]:
+        return "No switch configs."
+    
+    results = []
+    for config in resp_json["configs"]:
+        switch_id = config.get("id")
+        switch_available = switch_available_dict.get(switch_id, False)
+
+        result_str = (
+            f"Name: {config.get('name', 'Unknown')}\n"
+            f"IP: {config.get('mgmtIpAddress', 'Unknown')}\n"
+            f"MAC: {config.get('mac', 'Unknown')}\n"
+            f"Type: {config.get('type', 'Unknown')}\n"
+            f"Role: {config.get('role', 'Unknown')}\n"
+            f"Rack: {config.get('rack_id', 'Unknown')}\n"
+            f"Availability: {switch_available}\n"
+            f"Default config: {config.get('defaultCfg', 'Unknown')}\n"
+            f"Protocol: {config.get('protocol', 'Unknown')}\n"
+            f"Network OS: {config.get('nos', 'Unknown')}\n"
+            f"Manufacturer: {config.get('mfr', 'Unknown')}\n"
+            f"Serial number: {config.get('serial', 'Unknown')}\n"
+            f"Hardware: {config.get('hw', 'Unknown')}\n"
+            f"Software: {config.get('sw', 'Unknown')}"
+        )
+        results.append(result_str.strip()) # Remove extra indentation spaces
+
+    return "\n---\n".join(results)
+
+@mcp.tool()
+async def mars_get_system_version_string() -> str:
+    """Get MARS system version.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns a string containing controller IP, controller port,
+        controller status, and controller last update time.
+    """
+    # Get MARS version
+    url = f"{MARS_SERVER_URL}/mars/utility/v1/version"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json:
+        return "Unable to obtain MARS version information."
+
+    return (
+        f"Git commit: {resp_json.get('commit', 'Unknown')}\n"
+        f"Version: {resp_json.get('version', 'Unknown')}\n"
+        f"Build server: {resp_json.get('build_server', 'Unknown')}\n"
+        f"build time: {resp_json.get('build_date', 'Unknown')}\n"
+        f"Logstash version: {resp_json.get('logstash', 'Unknown')}\n"
+        f"Elasticsearch version: {resp_json.get('elasticsearch', 'Unknown')}\n"
+        f"Nginx version: {resp_json.get('nginx', 'Unknown')}"
+    )
+
+@mcp.tool()
+async def mars_get_application_list_string() -> str:
+    """Get MARS all installed applications.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns a string containing names and categories of all applications.
     """
     url = f"{MARS_SERVER_URL}/mars/v1/applications"
     response = await mars_get_request(url)
@@ -1192,22 +1376,29 @@ async def get_apps() -> str:
         return "No active APPs."
 
     apps = []
-    for feature in resp_json["applications"]:
+    for app in resp_json["applications"]:
         app_str = (
-            f"Name: {feature.get('name', 'Unknown')}\n"
-            f"Category: {feature.get('category', 'Unknown')}"
+            f"Name: {app.get('name', 'Unknown')}\n"
+            f"Category: {app.get('category', 'Unknown')}"
         )
         apps.append(app_str.strip()) # Remove extra indentation spaces
 
     return "\n---\n".join(apps)
 
 @mcp.tool()
-async def get_app(name: str) -> str:
-    """Get application details in MARS.
-    Note: MARS is a hardware independent controller.
+async def mars_get_application_information_string(name: str) -> str:
+    """Get MARS specified application information.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Args:
-        name: Application name
+        name: Application name sting
+
+    Returns:
+        Returns a string containing specified application's name,
+        state, version, category, origin and description.
     """
     url = f"{MARS_SERVER_URL}/mars/v1/applications/{name}"
     response = await mars_get_request(url)
@@ -1218,64 +1409,145 @@ async def get_app(name: str) -> str:
 
     return (
         f"Name: {resp_json.get('name', 'Unknown')}\n"
-        f"Category: {resp_json.get('category', 'Unknown')}"
+        f"State: {resp_json.get('state', 'Unknown')}\n"
+        f"Version: {resp_json.get('version', 'Unknown')}\n"
+        f"Category: {resp_json.get('category', 'Unknown')}\n"
+        f"Origin: {resp_json.get('origin', 'Unknown')}\n"
+        f"Description: {resp_json.get('description', 'Unknown')}"
     )
 
 @mcp.tool()
-async def activate_app(name: str) -> str:
-    """Activate MARS application.
-    Note: MARS is a hardware independent controller.
+async def mars_activate_application(name: str) -> str:
+    """Activate specified MARS application.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Args:
-        name: Application name
+        name: Application name sting
+
+    Returns:
+        Returns the application activate status string.
     """
     url = f"{MARS_SERVER_URL}/mars/v1/applications/{name}/active"
-    response = await mars_post_request(url, None)
-    resp_json = response.json()
+    response = await mars_post_request(url)
 
-    if not resp_json:
+    if response.status_code != 200:
         return "Failed to activate application."
 
     return f"{name} APP has been successfully active."
 
 @mcp.tool()
-async def deactivate_app(name: str) -> str:
-    """Deactivate MARS application.
-    Note: MARS is a hardware independent controller.
+async def mars_deactivate_application(name: str) -> str:
+    """Deactivate specified MARS application.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Args:
-        name: Application name
+        name: Application name sting
+
+    Returns:
+        Returns the application deactivate status string.
     """
     url = f"{MARS_SERVER_URL}/mars/v1/applications/{name}/active"
-    resp = await mars_delete_request(url)
+    response = await mars_delete_request(url)
 
-    if resp.status_code != 200:
+    if response.status_code != 200:
         return "Failed to deactivate application."
 
     return f"{name} APP has been successfully deactive."
+
+@mcp.tool()
+async def mars_add_application(app_file: bytes) -> str:
+    # This MCP tool still needs to be adjusted.
+    # Currently, it is not possible to make Open WebUI recognize
+    # that files need to be brought into this tool.
+    """Add specified MARS application.
+    This tool allows you to upload a packaged MARS application file (such as a .zip or .tar.gz) 
+    and register it into the system via the MARS server.
+    Please upload the application package when prompted.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Args:
+        file: The application file to upload (binary file upload required). 
+              Please select the application file from your local device.
+
+    Returns:
+        Returns the application add status string.
+    """
+    url = f"{MARS_SERVER_URL}/mars/v1/applications?activate=false"
+    response = await mars_post_request(url=url, data=app_file, content_type="application/octet-stream")
+
+    if response.status_code != 200:
+        return "Failed to add application."
+
+    return f"APP has been successfully add."
+
+@mcp.tool()
+async def mars_delete_application(name: str) -> str:
+    """Delete specified MARS application.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Args:
+        name: Application name sting
+
+    Returns:
+        Returns the application delete status string.
+    """
+    url = f"{MARS_SERVER_URL}/mars/v1/applications"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "applications" not in resp_json:
+        return "Unable to fetch MARS APPs or no APPs found."
+
+    if not resp_json["applications"]:
+        return "No active APPs."
+
+    for app in resp_json["applications"]:
+        if app["name"] == name:
+            url = f"{MARS_SERVER_URL}/mars/v1/applications/{name}"
+            response = await mars_delete_request(url)
+            if response.status_code == 204:
+                return f"{name} application has been successfully delete."
+            else:
+                return "Failed to delete application."
+    
+    return f"{name} application not found."
 
 ### Call MARS API related functions ###
 async def get_mars_cookies():
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     url = f"{MARS_SERVER_URL}/mars/useraccount/v1/swagger-login"
-    data = {"user_name": MARS_USER_NAME, "password": MARS_PASSWORD}
+    json = {"user_name": MARS_USER_NAME, "password": MARS_PASSWORD}
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(url, headers=headers, json=data, timeout=30.0)
+            response = await client.post(url, headers=headers, json=json, timeout=30.0)
             response.raise_for_status()
             return {"marsGSessionId": response.headers["MARS_G_SESSION_ID"]}
         except Exception as e:
             return None
 
-async def mars_post_request(url: str, data: dict[str, Any]):
+async def mars_post_request(url: str, json: dict[str, Any] = None, data: bytes = None,
+                            content_type: str = "application/json"):
     headers = {
-        "Content-Type": "application/json",
+        "Content-Type": content_type,
         "Accept": "application/json"
     }
     async with httpx.AsyncClient() as client:
         try:
             cookies = await get_mars_cookies()
-            response = await client.post(url, cookies=cookies, headers=headers, json=data, timeout=30.0)
+            response = await client.post(url, cookies=cookies, headers=headers,
+                                        json=json, data=data, timeout=30.0)
             response.raise_for_status()
             return response
         except Exception as e:
@@ -1355,6 +1627,19 @@ def generate_simple_topology(nodes: dict, links: set) -> str:
     # Combine the elements of the results list with newline characters
     return "\n".join(results) + "\n"
 
+def generate_force_topology(nodes: dict, links: set) -> str:
+    results = ["flowchart LR"]
+    for node in nodes.values():
+        results.append(f"{node["name"]}(\"{node["name"]}<br>{node["ip"]}\")")
+        if not node["state"]:
+            results.append(f"style {node["name"]} stroke:#f00")
+
+    for a, b in links:
+        results.append(f"{a[0]}===|port {a[1]}---port {b[1]}|{b[0]}")
+    
+    # Combine the elements of the results list with newline characters
+    return "\n".join(results) + "\n"
+
 ### Handling Server-Sent Events(SSE) connections ###
 transport = SseServerTransport("/messages/")
 
@@ -1392,7 +1677,7 @@ def read_root():
     return {"message": "MCP SSE Server is running"}
 
 if __name__ == "__main__":
-    test = asyncio.run(mars_get_switch_recent_network_packet_count_ranking_chart())
+    test = asyncio.run(mars_get_application_information_string("com.accton.switchmgmt"))
     print(test)
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5050)
