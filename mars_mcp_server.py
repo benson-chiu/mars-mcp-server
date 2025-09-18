@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from itertools import chain
 from typing import Any
 import httpx
 import json
+import math
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
@@ -162,7 +164,7 @@ async def mars_get_switch_cpu_usage_ranking_string() -> str:
     resp_json = response.json()
 
     if not resp_json or "cpu" not in resp_json:
-        return "Unable to obtain MARS switch cpu usage."
+        return "Unable to obtain MARS switch CPU usage."
 
     if not resp_json["cpu"]:
         return "No switch CPU usage statistics."
@@ -186,11 +188,11 @@ async def mars_get_switch_cpu_usage_ranking_string() -> str:
 
         cpu_usage_data_list.append((host, used_percent))
 
-    cpu_usage_top5 = sorted(cpu_usage_data_list, key=lambda x: x[1], reverse=True)[:5]
+    cpu_usage_top_5 = sorted(cpu_usage_data_list, key=lambda x: x[1], reverse=True)[:5]
 
     index = 0
     results = []
-    for host, used_percent in cpu_usage_top5:
+    for host, used_percent in cpu_usage_top_5:
         index += 1
         result_str = (
             f"#{index}\n"
@@ -226,7 +228,7 @@ async def mars_get_switch_cpu_usage_ranking_chart() -> str:
     resp_json = response.json()
 
     if not resp_json or "cpu" not in resp_json:
-        return "Unable to obtain MARS switch cpu usage."
+        return "Unable to obtain MARS switch CPU usage."
 
     if not resp_json["cpu"]:
         return "No switch CPU usage statistics."
@@ -250,15 +252,15 @@ async def mars_get_switch_cpu_usage_ranking_chart() -> str:
 
         cpu_usage_data_list.append((host, used_percent))
 
-    cpu_usage_top5 = sorted(cpu_usage_data_list, key=lambda x: x[1], reverse=True)[:5]
+    cpu_usage_top_5 = sorted(cpu_usage_data_list, key=lambda x: x[1], reverse=True)[:5]
 
     return (mermaid_chart_count_prompt() +
             generate_bar_chart(
-                title =" 交換器CPU前5即時",
+                title ="交換器CPU前5即時",
                 x_axis_name = "",
                 y_axis_name = "CPU usage (%)",
-                keys = [item[0] for item in cpu_usage_top5],
-                values = [item[1] for item in cpu_usage_top5],
+                keys = [item[0] for item in cpu_usage_top_5],
+                values = [item[1] for item in cpu_usage_top_5],
                 range_min = 0,
                 range_max = 100
             ))
@@ -370,7 +372,7 @@ async def mars_get_switch_memory_usage_proportion_chart() -> str:
         if used_percent is None:
             continue
 
-        host += f"({used_percent}%)"
+        host += f" ({used_percent}%)"
         memory_usage_data_dict[host] = used_percent
 
     return (mermaid_chart_count_prompt() +
@@ -483,7 +485,7 @@ async def mars_get_switch_disk_usage_proportion_chart() -> str:
         if used_percent is None:
             continue
 
-        host += f"({used_percent}%)"
+        host += f" ({used_percent}%)"
         disk_usage_data_dict[host] = used_percent
 
     return (mermaid_chart_count_prompt() +
@@ -759,7 +761,7 @@ async def mars_get_switch_recent_network_traffic_ranking_string() -> str:
         Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Returns:
-        Returns string of the top five switch names and switch recent network throughput average.
+        Returns string of the top five switch names and switch recent network bytes throughput average.
     """
     # Get MARS switch port statistics
     time_now = datetime.now(timezone.utc)
@@ -843,7 +845,7 @@ async def mars_get_switch_recent_network_traffic_ranking_chart() -> str:
         Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Returns:
-        Returns Mermaid.js chart syntax of the top five switch names and switch recent network throughput.
+        Returns Mermaid.js chart syntax of the top five switch names and switch recent network bytes throughput.
         You just need to output it "as is".
         Modification of the content of the output is not permitted,
         nor is unauthorized inference of the output allowed.
@@ -897,7 +899,9 @@ async def mars_get_switch_recent_network_traffic_ranking_chart() -> str:
             throughput_bps = delta_bytes / resolution_second # bytes/sec
 
             # Adjust the time format to avoid the problem of too long strings
-            timepoint = datetime.fromisoformat(current["timepoint"].replace("Z", "")).strftime("%H:%M:%S")
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
             timepoint_list.append(timepoint)
 
             throughput_sum += throughput_bps
@@ -942,7 +946,7 @@ async def mars_get_switch_recent_network_packet_count_ranking_string() -> str:
         Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Returns:
-        Returns string of the top five switch names and switch recent network packets per second(PPS) average.
+        Returns string of the top five switch names and switch recent network packets throughput average.
     """
     # Get MARS switch port statistics
     time_now = datetime.now(timezone.utc)
@@ -961,10 +965,10 @@ async def mars_get_switch_recent_network_packet_count_ranking_string() -> str:
     if not resp_json["portstats"]:
         return "No switch port statistics."
 
-    # In switch_pps_dict, including the packets per second(PPS) of each switch at each time point,
-    # and the average PPS. Throughput list is sorted from oldest to newest.
-    # e.g. {"<switch name>": {"pps_list": [<PPS>, ...], "pps_avg": <PPS average>}}
-    switch_pps_dict = {}
+    # In switch_throughput_dict, including the throughput of each switch at each time point,
+    # and the average throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<switch name>": {"throughput_list": [<throughput>, ...], "throughput_avg": <throughput average>}}
+    switch_throughput_dict = {}
     for stats in resp_json["portstats"]:
         host = stats.get("host")
         resources = stats.get("resources")[-10:]
@@ -973,43 +977,43 @@ async def mars_get_switch_recent_network_packet_count_ranking_string() -> str:
         if not resources:
             continue
 
-        pps_sum = 0
-        pps_list = []
+        throughput_sum = 0
+        throughput_list = []
         for i in range(1, len(resources)):
             current = resources[i]
             previous = resources[i - 1]
 
             # Calculate the delta of each data point
-            # and divide it by the interval time to get the PPS.
+            # and divide it by the interval time to get the throughput.
             packets_prev = previous["packetsReceived"] + previous["packetsSent"]
             packets_curr = current["packetsReceived"] + current["packetsSent"]
 
             delta_packets = packets_curr - packets_prev
-            pps = delta_packets / resolution_second # packets/sec
+            throughput_pps = delta_packets / resolution_second # packets/sec
 
-            pps_sum += pps
-            pps_list.append(pps)
+            throughput_sum += throughput_pps
+            throughput_list.append(throughput_pps)
         
-        pps_avg = pps_sum / len(resources)
-        switch_pps_dict[host] = {
-            "pps_list": pps_list,
-            "pps_avg": pps_avg
+        throughput_avg = throughput_sum / len(resources)
+        switch_throughput_dict[host] = {
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
         }
 
-    packet_count_top_5 = sorted(
-        switch_pps_dict.items(),
-        key=lambda item: item[1]["pps_avg"],
+    traffic_top_5 = sorted(
+        switch_throughput_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
         reverse=True
     )[:5]
 
     index = 0
     results = []
-    for host, data in packet_count_top_5:
+    for host, data in traffic_top_5:
         index += 1
         result_str = (
             f"#{index}\n"
             f"Switch name: {host}\n"
-            f"Packet count average: {data['pps_avg']:.2f} packets/sec"
+            f"Throughput average: {data['throughput_avg']:.2f} packets/sec"
         )
         results.append(result_str.strip()) # Remove extra indentation spaces
 
@@ -1026,7 +1030,7 @@ async def mars_get_switch_recent_network_packet_count_ranking_chart() -> str:
         Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Returns:
-        Returns Mermaid.js chart syntax of the top five switch names and switch recent network packets per second(PPS).
+        Returns Mermaid.js chart syntax of the top five switch names and switch recent network packets throughput.
         You just need to output it "as is".
         Modification of the content of the output is not permitted,
         nor is unauthorized inference of the output allowed.
@@ -1048,14 +1052,14 @@ async def mars_get_switch_recent_network_packet_count_ranking_chart() -> str:
     if not resp_json["portstats"]:
         return "No switch port statistics."
 
-    # In switch_pps_dict, including the packets per second(PPS) of each switch at each time point,
-    # and the average PPS. Throughput list is sorted from oldest to newest.
+    # In switch_throughput_dict, including the throughput of each switch at each time point,
+    # and the average throughput. Throughput list is sorted from oldest to newest.
     # e.g. {"<switch name>": {
     #           "timepoint_list": [<timepoint>, ...],
-    #           "pps_list": [<PPS>, ...],
-    #           "pps_avg": <PPS average>}
+    #           "throughput_list": [<throughput>, ...],
+    #           "throughput_avg": <throughput average>}
     #      }
-    switch_pps_dict = {}
+    switch_throughput_dict = {}
     for stats in resp_json["portstats"]:
         host = stats.get("host")
         resources = stats.get("resources")[-10:]
@@ -1065,52 +1069,54 @@ async def mars_get_switch_recent_network_packet_count_ranking_chart() -> str:
             continue
 
         timepoint_list = []
-        pps_sum = 0
-        pps_list = []
+        throughput_sum = 0
+        throughput_list = []
         for i in range(1, len(resources)):
             current = resources[i]
             previous = resources[i - 1]
 
             # Calculate the delta of each data point
-            # and divide it by the interval time to get the PPS.
+            # and divide it by the interval time to get the throughput.
             packets_prev = previous["packetsReceived"] + previous["packetsSent"]
             packets_curr = current["packetsReceived"] + current["packetsSent"]
 
             delta_packets = packets_curr - packets_prev
-            pps = delta_packets / resolution_second # packets/sec
+            throughput_pps = delta_packets / resolution_second # packets/sec
 
             # Adjust the time format to avoid the problem of too long strings
-            timepoint = datetime.fromisoformat(current["timepoint"].replace("Z", "")).strftime("%H:%M:%S")
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
             timepoint_list.append(timepoint)
 
-            pps_sum += pps
-            pps_list.append(pps)
+            throughput_sum += throughput_pps
+            throughput_list.append(throughput_pps)
         
-        pps_avg = pps_sum / len(resources)
-        switch_pps_dict[host] = {
+        throughput_avg = throughput_sum / len(resources)
+        switch_throughput_dict[host] = {
             "timepoint_list": timepoint_list,
-            "pps_list": pps_list,
-            "pps_avg": pps_avg
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
         }
 
-    packet_count_top_5 = sorted(
-        switch_pps_dict.items(),
-        key=lambda item: item[1]["pps_avg"],
+    traffic_top_5 = sorted(
+        switch_throughput_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
         reverse=True
     )[:5]
 
     index = 0
-    results = [mermaid_chart_count_prompt(len(packet_count_top_5))]
-    for item in packet_count_top_5:
+    results = [mermaid_chart_count_prompt(len(traffic_top_5))]
+    for item in traffic_top_5:
         index += 1
         result_chart = generate_line_chart(
             title = "交換器最近封包數前5",
             x_axis_name = f"{item[0]} (#{index})",
-            y_axis_name = "Packet count (packets/sec)",
+            y_axis_name = "Throughput (packets/sec)",
             keys = item[1]["timepoint_list"],
-            values = item[1]["pps_list"],
-            range_min = min(item[1]["pps_list"]),
-            range_max = max(item[1]["pps_list"])
+            values = item[1]["throughput_list"],
+            range_min = min(item[1]["throughput_list"]),
+            range_max = max(item[1]["throughput_list"])
         )
         results.append(result_chart)
 
@@ -1524,6 +1530,940 @@ async def mars_delete_application(name: str) -> str:
     
     return f"{name} application not found."
 
+@mcp.tool()
+async def mars_get_api_call_count_trend_chart() -> str:
+    """Get MARS API call count trend chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the count of recent MARS API call count.
+        You just need to output it "as is".
+        Modification of the content of the output is not permitted,
+        nor is unauthorized inference of the output allowed.
+    """
+    # Get MARS API call statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/nginx/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "statistic" not in resp_json:
+        return "Unable to obtain MARS API call statistics."
+
+    if not resp_json["statistic"]:
+        return "No MARS API call statistics."
+
+    timepoint_list = []
+    count_list = []
+    for stats in resp_json["statistic"][-10:]:
+        # Adjust the time format to avoid the problem of too long strings
+        utc_dt = datetime.fromisoformat(stats["timepoint"].replace("Z", ""))
+        local_dt = utc_dt + timedelta(hours=8) # UTC+8
+        timepoint = local_dt.strftime("%H:%M:%S")
+        timepoint_list.append(timepoint)
+
+        count = stats.get("count")
+        count_list.append(count)
+
+    return (mermaid_chart_count_prompt() +
+            generate_bar_chart(
+                title ="API呼叫趨勢",
+                x_axis_name = "",
+                y_axis_name = "API call count",
+                keys = timepoint_list,
+                values = count_list,
+                range_min = min(count_list),
+                range_max = max(count_list)
+            ))
+
+@mcp.tool()
+async def mars_get_api_call_count_top_10_client_chart() -> str:
+    """Get MARS API call count top 10 client chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the client IP and MARS API call count.
+    """
+    # Get MARS API call statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/nginx/{time_start}/{time_end}/type/clientip"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "statistic" not in resp_json:
+        return "Unable to obtain MARS API call statistics."
+
+    if not resp_json["statistic"]:
+        return "No MARS API call statistics."
+
+    # In client_ip_count_dict, includes client IP and MARS API call count for each client.
+    # e.g. {"<client IP>": <MARS API call count>}
+    client_ip_count_dict = {}
+    for stats in resp_json["statistic"]:
+        client_ip = stats.get("clientIp") or "Unknown"
+        count = stats.get("count")
+
+        client_ip += f" ({count})"
+        client_ip_count_dict[client_ip] = count
+
+    client_ip_top_10 = sorted(client_ip_count_dict.items(), key=lambda item: item[1], reverse=True)[:10]
+
+    return (mermaid_chart_count_prompt() +
+            generate_pie_chart(title="客戶端IP呼叫API次數前10名", data=dict(client_ip_top_10)))
+
+@mcp.tool()
+async def mars_get_api_call_count_top_10_url_chart() -> str:
+    """Get MARS API call count top 10 URL chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the MARS API URL and MARS API call count.
+    """
+    # Get MARS API call statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/nginx/{time_start}/{time_end}/type/url"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "statistic" not in resp_json:
+        return "Unable to obtain MARS API call statistics."
+
+    if not resp_json["statistic"]:
+        return "No MARS API call statistics."
+
+    # In url_count_dict, includes MARS API URL and MARS API call count for each client.
+    # e.g. {"<MARS API URL>": <MARS API call count>}
+    url_count_dict = {}
+    for stats in resp_json["statistic"]:
+        url = stats.get("url") or "Unknown"
+        count = stats.get("count")
+
+        url += f" ({count})"
+        url_count_dict[url] = count
+
+    url_top_10 = sorted(url_count_dict.items(), key=lambda item: item[1], reverse=True)[:10]
+
+    return (mermaid_chart_count_prompt() +
+            generate_pie_chart(title="URL呼叫API次數前10名", data=dict(url_top_10)))
+
+@mcp.tool()
+async def mars_get_system_module_log_top_10_chart() -> str:
+    """Get MARS system module log top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the MARS system module name and module log count.
+    """
+    # Get MARS system module log statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 600
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/filebeat/handler/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "filebeat" not in resp_json:
+        return "Unable to obtain MARS system module log statistics."
+
+    if not resp_json["filebeat"]:
+        return "No MARS system module log statistics."
+
+    # In system_module_count_dict includes MARS system module name and module log count for each module.
+    # e.g. {"<MARS system module name>": <module log count>}
+    system_module_count_dict = {}
+    for log in resp_json["filebeat"]:
+        handlers = log.get("handlers")
+
+        # Check if handlers has data
+        if not handlers:
+            continue
+
+        for handler in handlers:
+            module_name = handler.get("key") or "Unknown"
+            count = handler.get("count")
+
+            if module_name in system_module_count_dict:
+                system_module_count_dict[module_name] += count
+            else:
+                system_module_count_dict[module_name] = count
+
+    # Add module log count to the module name
+    system_module_count_dict = {f"{k} ({v})": v for k, v in system_module_count_dict.items()}
+
+    system_module_top_10 = sorted(system_module_count_dict.items(), key=lambda item: item[1], reverse=True)[:10]
+
+    return (mermaid_chart_count_prompt() +
+            generate_pie_chart(title="系統模組日誌前10名", data=dict(system_module_top_10)))
+
+@mcp.tool()
+async def mars_get_system_thread_log_top_10_chart() -> str:
+    """Get MARS system thread log top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the MARS system thread name and thread log count.
+    """
+    # Get MARS system thread log statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 600
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/filebeat/thread/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "filebeat" not in resp_json:
+        return "Unable to obtain MARS system thread log statistics."
+
+    if not resp_json["filebeat"]:
+        return "No MARS system thread log statistics."
+
+    # In system_thread_count_dict includes MARS system thread name and thread log count for each thread.
+    # e.g. {"<MARS system thread name>": <thread log count>}
+    system_thread_count_dict = {}
+    for log in resp_json["filebeat"]:
+        threads = log.get("threads")
+
+        # Check if threads has data
+        if not threads:
+            continue
+
+        for thread in threads:
+            thread_name = thread.get("key") or "Unknown"
+            count = thread.get("count")
+
+            if thread_name in system_thread_count_dict:
+                system_thread_count_dict[thread_name] += count
+            else:
+                system_thread_count_dict[thread_name] = count
+
+    # Add thread log count to the thread name
+    system_thread_count_dict = {f"{k} ({v})": v for k, v in system_thread_count_dict.items()}
+
+    system_thread_top_10 = sorted(system_thread_count_dict.items(), key=lambda item: item[1], reverse=True)[:10]
+
+    return (mermaid_chart_count_prompt() +
+            generate_pie_chart(title="系統執行緒日誌前10名", data=dict(system_thread_top_10)))
+
+@mcp.tool()
+async def mars_get_switch_cpu_top_10_chart() -> str:
+    """Get MARS switch cpu top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch CPU usage based on CPU usage.
+    """
+    # Get MARS switch cpu usage
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/cpu/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "cpu" not in resp_json:
+        return "Unable to obtain MARS switch CPU usage."
+
+    if not resp_json["cpu"]:
+        return "No switch CPU usage statistics."
+
+    # In cpu_usage_data_dict, including the CPU usage of each switch at each time point,
+    # and the average CPU usage. CPU usage list is sorted from oldest to newest.
+    # e.g. {"<switch name>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "cpu_usage_list": [<CPU usage>, ...],
+    #           "cpu_usage_avg": <CPU usage average>
+    #      }
+    cpu_usage_data_dict = {}
+    for cpu in resp_json["cpu"]:
+        host = cpu.get("host")
+        resources = cpu.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        cpu_usage_sum = 0
+        cpu_usage_list = []
+        for resource in resources:
+            used_percent = resource.get("used_percent")
+            cpu_usage_sum += used_percent
+            cpu_usage_list.append(used_percent)
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(resource["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+        cpu_usage_avg = cpu_usage_sum / len(resources)
+        cpu_usage_data_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "cpu_usage_list": cpu_usage_list,
+            "cpu_usage_avg": cpu_usage_avg
+        }
+    
+    # item[0] is dict key
+    # item[1] is dict value
+    cpu_usage_top_10 = sorted(
+        cpu_usage_data_dict.items(),
+        key=lambda item: item[1]["cpu_usage_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(cpu_usage_top_10, "cpu_usage_list")
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="交換器CPU前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "CPU usage (%)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_switch_memory_top_10_chart() -> str:
+    """Get MARS switch memory top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch memory usage based on memory usage.
+    """
+    # Get MARS switch memory usage
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/memory/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "memory" not in resp_json:
+        return "Unable to obtain MARS switch memory usage."
+
+    if not resp_json["memory"]:
+        return "No switch memory usage statistics."
+
+    # In memory_usage_data_dict, including the memory usage of each switch at each time point,
+    # and the average memory usage. memory usage list is sorted from oldest to newest.
+    # e.g. {"<switch name>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "memory_usage_list": [<memory usage>, ...],
+    #           "memory_usage_avg": <memory usage average>
+    #      }
+    memory_usage_data_dict = {}
+    for memory in resp_json["memory"]:
+        host = memory.get("host")
+        resources = memory.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        memory_usage_sum = 0
+        memory_usage_list = []
+        for resource in resources:
+            used_percent = resource.get("used_percent")
+            memory_usage_sum += used_percent
+            memory_usage_list.append(used_percent)
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(resource["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+        memory_usage_avg = memory_usage_sum / len(resources)
+        memory_usage_data_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "memory_usage_list": memory_usage_list,
+            "memory_usage_avg": memory_usage_avg
+        }
+    
+    # item[0] is dict key
+    # item[1] is dict value
+    memory_usage_top_10 = sorted(
+        memory_usage_data_dict.items(),
+        key=lambda item: item[1]["memory_usage_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(memory_usage_top_10, "memory_usage_list")
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="交換器記憶體前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Memory usage (%)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_switch_disk_top_10_chart() -> str:
+    """Get MARS switch disk top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch disk usage based on disk usage.
+    """
+    # Get MARS switch disk usage
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/disk/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "disk" not in resp_json:
+        return "Unable to obtain MARS switch disk usage."
+
+    if not resp_json["disk"]:
+        return "No switch disk usage statistics."
+
+    # In disk_usage_data_dict, including the disk usage of each switch at each time point,
+    # and the average disk usage. disk usage list is sorted from oldest to newest.
+    # e.g. {"<switch name>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "disk_usage_list": [<disk usage>, ...],
+    #           "disk_usage_avg": <disk usage average>
+    #      }
+    disk_usage_data_dict = {}
+    for disk in resp_json["disk"]:
+        host = disk.get("host")
+        resources = disk.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        disk_usage_sum = 0
+        disk_usage_list = []
+        for resource in resources:
+            used_percent = resource.get("used_percent")
+            disk_usage_sum += used_percent
+            disk_usage_list.append(used_percent)
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(resource["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+        disk_usage_avg = disk_usage_sum / len(resources)
+        disk_usage_data_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "disk_usage_list": disk_usage_list,
+            "disk_usage_avg": disk_usage_avg
+        }
+    
+    # item[0] is dict key
+    # item[1] is dict value
+    disk_usage_top_10 = sorted(
+        disk_usage_data_dict.items(),
+        key=lambda item: item[1]["disk_usage_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(disk_usage_top_10, "disk_usage_list")
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="交換器硬碟前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Disk usage (%)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_switch_sent_bytes_traffic_top_10_chart() -> str:
+    """Get MARS switch sent bytes traffic top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch sent bytes based on network throughput.
+    """
+   # Get MARS switch port statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch_ports/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "portstats" not in resp_json:
+        return "Unable to obtain MARS switch port statistics."
+
+    if not resp_json["portstats"]:
+        return "No switch port statistics."
+
+    # In switch_sent_bytes_dict, including the sent throughput of each switch at each time point,
+    # and the average sent throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<switch name>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "throughput_list": [<sent throughput>, ...],
+    #           "throughput_avg": <sent throughput average>}
+    #      }
+    switch_sent_bytes_dict = {}
+    for stats in resp_json["portstats"]:
+        host = stats.get("host")
+        resources = stats.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        throughput_sum = 0
+        throughput_list = []
+        for i in range(1, len(resources)):
+            current = resources[i]
+            previous = resources[i - 1]
+
+            # Calculate the delta of each data point
+            # and divide it by the interval time to get the sent throughput.
+            bytes_prev = previous["bytesSent"]
+            bytes_curr = current["bytesSent"]
+
+            delta_bytes = bytes_curr - bytes_prev
+            throughput_bps = round(delta_bytes / resolution_second, 2) # bytes/sec
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+            throughput_sum += throughput_bps
+            throughput_list.append(throughput_bps)
+
+        throughput_avg = throughput_sum / len(resources)
+        switch_sent_bytes_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
+        }
+
+    # item[0] is dict key
+    # item[1] is dict value
+    sent_bytes_top_10 = sorted(
+        switch_sent_bytes_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(sent_bytes_top_10, "throughput_list")
+
+    # Iterate over all values ​​and get the maximum and minimum values
+    all_values_list = list(chain.from_iterable(param["chart_multiple_values_list"]))
+    range_min = min(all_values_list)
+    range_max = max(all_values_list)
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="交換器發送位元組流量前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Sent throughput (bytes/sec)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
+                range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
+            ))
+
+@mcp.tool()
+async def mars_get_switch_received_bytes_traffic_top_10_chart() -> str:
+    """Get MARS switch received bytes traffic top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch received bytes based on network throughput.
+    """
+   # Get MARS switch port statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch_ports/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "portstats" not in resp_json:
+        return "Unable to obtain MARS switch port statistics."
+
+    if not resp_json["portstats"]:
+        return "No switch port statistics."
+
+    # In switch_received_bytes_dict, including the received throughput of each switch at each time point,
+    # and the average received throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<switch name>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "throughput_list": [<received throughput>, ...],
+    #           "throughput_avg": <received throughput average>}
+    #      }
+    switch_received_bytes_dict = {}
+    for stats in resp_json["portstats"]:
+        host = stats.get("host")
+        resources = stats.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        throughput_sum = 0
+        throughput_list = []
+        for i in range(1, len(resources)):
+            current = resources[i]
+            previous = resources[i - 1]
+
+            # Calculate the delta of each data point
+            # and divide it by the interval time to get the received throughput.
+            bytes_prev = previous["bytesReceived"]
+            bytes_curr = current["bytesReceived"]
+
+            delta_bytes = bytes_curr - bytes_prev
+            throughput_bps = round(delta_bytes / resolution_second, 2) # bytes/sec
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+            throughput_sum += throughput_bps
+            throughput_list.append(throughput_bps)
+
+        throughput_avg = throughput_sum / len(resources)
+        switch_received_bytes_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
+        }
+
+    # item[0] is dict key
+    # item[1] is dict value
+    received_bytes_top_10 = sorted(
+        switch_received_bytes_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(received_bytes_top_10, "throughput_list")
+
+    # Iterate over all values ​​and get the maximum and minimum values
+    all_values_list = list(chain.from_iterable(param["chart_multiple_values_list"]))
+    range_min = min(all_values_list)
+    range_max = max(all_values_list)
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="交換器接收位元組流量前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Received throughput (bytes/sec)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
+                range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
+            ))
+
+@mcp.tool()
+async def mars_get_switch_sent_packets_traffic_top_10_chart() -> str:
+    """Get MARS switch sent packets traffic top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch sent packets based on network throughput.
+    """
+   # Get MARS switch port statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch_ports/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "portstats" not in resp_json:
+        return "Unable to obtain MARS switch port statistics."
+
+    if not resp_json["portstats"]:
+        return "No switch port statistics."
+
+    # In switch_sent_packets_dict, including the sent throughput of each switch at each time point,
+    # and the average sent throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<switch name>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "throughput_list": [<sent throughput>, ...],
+    #           "throughput_avg": <sent throughput average>}
+    #      }
+    switch_sent_packets_dict = {}
+    for stats in resp_json["portstats"]:
+        host = stats.get("host")
+        resources = stats.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        throughput_sum = 0
+        throughput_list = []
+        for i in range(1, len(resources)):
+            current = resources[i]
+            previous = resources[i - 1]
+
+            # Calculate the delta of each data point
+            # and divide it by the interval time to get the sent throughput.
+            packets_prev = previous["packetsSent"]
+            packets_curr = current["packetsSent"]
+
+            delta_packets = packets_curr - packets_prev
+            throughput_bps = round(delta_packets / resolution_second, 2) # packets/sec
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+            throughput_sum += throughput_bps
+            throughput_list.append(throughput_bps)
+
+        throughput_avg = throughput_sum / len(resources)
+        switch_sent_packets_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
+        }
+
+    # item[0] is dict key
+    # item[1] is dict value
+    sent_packets_top_10 = sorted(
+        switch_sent_packets_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(sent_packets_top_10, "throughput_list")
+
+    # Iterate over all values ​​and get the maximum and minimum values
+    all_values_list = list(chain.from_iterable(param["chart_multiple_values_list"]))
+    range_min = min(all_values_list)
+    range_max = max(all_values_list)
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="交換器發送封包流量前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Sent throughput (packets/sec)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
+                range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
+            ))
+
+@mcp.tool()
+async def mars_get_switch_received_packets_traffic_top_10_chart() -> str:
+    """Get MARS switch received packets traffic top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch received packets based on network throughput.
+    """
+   # Get MARS switch port statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch_ports/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "portstats" not in resp_json:
+        return "Unable to obtain MARS switch port statistics."
+
+    if not resp_json["portstats"]:
+        return "No switch port statistics."
+
+    # In switch_received_packets_dict, including the received throughput of each switch at each time point,
+    # and the average received throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<switch name>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "throughput_list": [<received throughput>, ...],
+    #           "throughput_avg": <received throughput average>}
+    #      }
+    switch_received_packets_dict = {}
+    for stats in resp_json["portstats"]:
+        host = stats.get("host")
+        resources = stats.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        throughput_sum = 0
+        throughput_list = []
+        for i in range(1, len(resources)):
+            current = resources[i]
+            previous = resources[i - 1]
+
+            # Calculate the delta of each data point
+            # and divide it by the interval time to get the received throughput.
+            packets_prev = previous["packetsReceived"]
+            packets_curr = current["packetsReceived"]
+
+            delta_packets = packets_curr - packets_prev
+            throughput_bps = round(delta_packets / resolution_second, 2) # packets/sec
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+            throughput_sum += throughput_bps
+            throughput_list.append(throughput_bps)
+
+        throughput_avg = throughput_sum / len(resources)
+        switch_received_packets_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
+        }
+
+    # item[0] is dict key
+    # item[1] is dict value
+    received_packets_top_10 = sorted(
+        switch_received_packets_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(received_packets_top_10, "throughput_list")
+
+    # Iterate over all values ​​and get the maximum and minimum values
+    all_values_list = list(chain.from_iterable(param["chart_multiple_values_list"]))
+    range_min = min(all_values_list)
+    range_max = max(all_values_list)
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="交換器接收封包流量前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Received throughput (packets/sec)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
+                range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
+            ))
+
 ### Call MARS API related functions ###
 async def get_mars_cookies():
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -1581,12 +2521,52 @@ async def mars_delete_request(url: str):
             return None
 
 ### Convert Mermaid.js syntax template functions ###
+def mermaid_line_chart_color_text(index: int) -> str:
+    color_text_list = ["藍", "綠", "紅", "黃", "灰", "白", "灰藍", "紫", "青綠", "橘"]
+    return color_text_list[index]
+
 def mermaid_chart_count_prompt(count: int = 1) -> str:
     # Added "Show Mermaid.js" prompt to enable Open WebUI to correctly render Mermaid.js charts
     if count < 2:
         return "Show Mermaid.js\n"
     else:
         return f"Show {count} Mermaid.js\n"
+
+def convert_mars_analyzer_chart_parameters(data: list, resource_key: str) -> dict:
+    # Need to get the most complete list of time points to use as the x-axis of the chart.
+    chart_timepoint_list = []
+    for item in data:
+        resource = item[1]
+        if len(chart_timepoint_list) < len(resource["timepoint_list"]):
+            chart_timepoint_list = resource["timepoint_list"]
+    
+    chart_label = ""
+    chart_multiple_values_list = []
+    for index, item in enumerate(data):
+        name = item[0]
+        resource = item[1]
+
+        # Establish the corresponding relationship label
+        # between the chart line color and the name.
+        # e.g. "Blue:name1 Green:name2"
+        chart_label += f"{mermaid_line_chart_color_text(index)}:{name} "
+
+        # When the data length is less than the number of time points on the x-axis of the chart,
+        # need to add 0 in front of the data.
+        data_list = resource[resource_key]
+        data_length = len(data_list)
+        chart_timepoint_length = len(chart_timepoint_list)
+        if data_length < chart_timepoint_length:
+            padding = [0] * (chart_timepoint_length - data_length)
+            data_list = padding + data_list
+
+        chart_multiple_values_list.append(data_list)
+
+    return {
+        "chart_label": chart_label,
+        "chart_timepoint_list": chart_timepoint_list,
+        "chart_multiple_values_list": chart_multiple_values_list
+    }
 
 def generate_bar_chart(title: str, x_axis_name: str, y_axis_name: str, keys: list | tuple,
                        values: list | tuple, range_min: int,  range_max: int) -> str:
@@ -1607,6 +2587,21 @@ def generate_line_chart(title: str, x_axis_name: str, y_axis_name: str, keys: li
         f"y-axis \"{y_axis_name}\" {range_min} --> {range_max}\n"
         f"line {values}\n"
     )
+
+def generate_multiple_line_chart(title: str, x_axis_name: str, y_axis_name: str, keys: list | tuple,
+                                 values: list | tuple, range_min: int,  range_max: int) -> str:
+    results = [
+        "xychart-beta",
+        f"title \"{title}\"",
+        f"x-axis \"{x_axis_name}\" {json.dumps(keys)}",
+        f"y-axis \"{y_axis_name}\" {range_min} --> {range_max}"
+    ]
+
+    # "values" is a two-dimensional list
+    for value in values:
+        results.append(f"line {value}")
+    
+    return "\n".join(results) + "\n"
 
 def generate_pie_chart(title: str, data: dict) -> str:
     results = ["pie", f"title {title}"]
@@ -1677,7 +2672,7 @@ def read_root():
     return {"message": "MCP SSE Server is running"}
 
 if __name__ == "__main__":
-    test = asyncio.run(mars_get_application_information_string("com.accton.switchmgmt"))
+    test = asyncio.run(mars_get_switch_cpu_top_10_chart())
     print(test)
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5050)
