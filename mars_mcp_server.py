@@ -143,7 +143,7 @@ async def mars_get_alert_count_string() -> str:
 
 @mcp.tool()
 async def mars_get_switch_cpu_usage_ranking_string() -> str:
-    """Get MARS switch cpu usage ranking.
+    """Get MARS switch CPU usage ranking.
 
     Note:
         MARS is a hardware independent controller for building
@@ -152,7 +152,7 @@ async def mars_get_switch_cpu_usage_ranking_string() -> str:
     Returns:
         Returns string of the top five switch names and switch CPU usage based on CPU usage.
     """
-    # Get MARS switch cpu usage
+    # Get MARS switch CPU usage
     time_now = datetime.now(timezone.utc)
     time_30_sec_ago = (time_now - timedelta(seconds=30))
 
@@ -205,7 +205,7 @@ async def mars_get_switch_cpu_usage_ranking_string() -> str:
 
 @mcp.tool()
 async def mars_get_switch_cpu_usage_ranking_chart() -> str:
-    """Get MARS switch cpu usage ranking chart.
+    """Get MARS switch CPU usage ranking chart.
     If the UI supports Mermaid.js, the chart must be rendered directly.
     This is for MCP tools, automatic inference will cause errors.
 
@@ -216,7 +216,7 @@ async def mars_get_switch_cpu_usage_ranking_chart() -> str:
     Returns:
         Returns Mermaid.js chart syntax of the top five switch names and switch CPU usage based on CPU usage.
     """
-    # Get MARS switch cpu usage
+    # Get MARS switch CPU usage
     time_now = datetime.now(timezone.utc)
     time_30_sec_ago = (time_now - timedelta(seconds=30))
 
@@ -538,7 +538,7 @@ async def mars_get_controller_resource_usage_proportion_string() -> str:
 
             # Check if usage exists
             if resource_type == "cpu":
-                usage = resource.get("user_percent")
+                usage = 100 - resource.get("idle_percent")
             else:
                 usage = resource.get("used_percent")
 
@@ -617,7 +617,7 @@ async def mars_get_controller_resource_usage_proportion_chart() -> str:
 
             # Check if usage exists
             if resource_type == "cpu":
-                usage = resource.get("user_percent")
+                usage = 100 - resource.get("idle_percent")
             else:
                 usage = resource.get("used_percent")
 
@@ -1339,8 +1339,8 @@ async def mars_get_system_version_string() -> str:
         Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
 
     Returns:
-        Returns a string containing controller IP, controller port,
-        controller status, and controller last update time.
+        Returns a string containing MARS system's git commit, version, build server, build time,
+        logstash version, elasticsearch version and nginx version.
     """
     # Get MARS version
     url = f"{MARS_SERVER_URL}/mars/utility/v1/version"
@@ -1358,6 +1358,40 @@ async def mars_get_system_version_string() -> str:
         f"Logstash version: {resp_json.get('logstash', 'Unknown')}\n"
         f"Elasticsearch version: {resp_json.get('elasticsearch', 'Unknown')}\n"
         f"Nginx version: {resp_json.get('nginx', 'Unknown')}"
+    )
+
+@mcp.tool()
+async def mars_get_resource_summary_string() -> str:
+    """Get MARS resource summary.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns a string containing MARS system's node IP, version, cluster ID,
+        Number of nodes, Number of switches, Number of links, Number of hosts,
+        Number of SSC, Number of flows and Number of intents.
+    """
+    # Get MARS system resource summary
+    url = f"{MARS_SERVER_URL}/mars/v1/system/resourceSummary"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json:
+        return "Unable to obtain MARS resource summary."
+
+    return (
+        f"Node: {resp_json.get('node', 'Unknown')}\n"
+        f"Version: {resp_json.get('version', 'Unknown')}\n"
+        f"Cluster ID: {resp_json.get('clusterId', 'Unknown')}\n"
+        f"Number of nodes: {resp_json.get('nodes')}\n"
+        f"Number of switches: {resp_json.get('devices')}\n"
+        f"Number of links: {resp_json.get('links')}\n"
+        f"Number of hosts: {resp_json.get('hosts')}\n"
+        f"Number of SSC: {resp_json.get('sccs')}\n"
+        f"Number of flows: {resp_json.get('flows')}\n"
+        f"Number of intents: {resp_json.get('intents')}"
     )
 
 @mcp.tool()
@@ -1790,7 +1824,7 @@ async def mars_get_system_thread_log_top_10_chart() -> str:
 
 @mcp.tool()
 async def mars_get_switch_cpu_top_10_chart() -> str:
-    """Get MARS switch cpu top 10 chart.
+    """Get MARS switch CPU top 10 chart.
     If the UI supports Mermaid.js, the chart must be rendered directly.
     This is for MCP tools, automatic inference will cause errors.
 
@@ -1801,7 +1835,7 @@ async def mars_get_switch_cpu_top_10_chart() -> str:
     Returns:
         Returns Mermaid.js chart syntax of the top ten switch names and switch CPU usage based on CPU usage.
     """
-    # Get MARS switch cpu usage
+    # Get MARS switch CPU usage
     time_now = datetime.now(timezone.utc)
     time_10_min_ago = (time_now - timedelta(minutes=10))
 
@@ -2317,7 +2351,7 @@ async def mars_get_switch_sent_packets_traffic_top_10_chart() -> str:
             packets_curr = current["packetsSent"]
 
             delta_packets = packets_curr - packets_prev
-            throughput_bps = round(delta_packets / resolution_second, 2) # packets/sec
+            throughput_pps = round(delta_packets / resolution_second, 2) # packets/sec
 
             # Adjust the time format to avoid the problem of too long strings
             utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
@@ -2325,8 +2359,8 @@ async def mars_get_switch_sent_packets_traffic_top_10_chart() -> str:
             timepoint = local_dt.strftime("%H:%M:%S")
             timepoint_list.append(timepoint)
 
-            throughput_sum += throughput_bps
-            throughput_list.append(throughput_bps)
+            throughput_sum += throughput_pps
+            throughput_list.append(throughput_pps)
 
         throughput_avg = throughput_sum / len(resources)
         switch_sent_packets_dict[host] = {
@@ -2420,7 +2454,7 @@ async def mars_get_switch_received_packets_traffic_top_10_chart() -> str:
             packets_curr = current["packetsReceived"]
 
             delta_packets = packets_curr - packets_prev
-            throughput_bps = round(delta_packets / resolution_second, 2) # packets/sec
+            throughput_pps = round(delta_packets / resolution_second, 2) # packets/sec
 
             # Adjust the time format to avoid the problem of too long strings
             utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
@@ -2428,8 +2462,8 @@ async def mars_get_switch_received_packets_traffic_top_10_chart() -> str:
             timepoint = local_dt.strftime("%H:%M:%S")
             timepoint_list.append(timepoint)
 
-            throughput_sum += throughput_bps
-            throughput_list.append(throughput_bps)
+            throughput_sum += throughput_pps
+            throughput_list.append(throughput_pps)
 
         throughput_avg = throughput_sum / len(resources)
         switch_received_packets_dict[host] = {
@@ -2463,6 +2497,1230 @@ async def mars_get_switch_received_packets_traffic_top_10_chart() -> str:
                 range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
                 range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
             ))
+
+@mcp.tool()
+async def mars_get_controller_cpu_top_10_chart() -> str:
+    """Get MARS controller CPU top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten controller names and controller CPU usage based on CPU usage.
+    """
+    # Get MARS controller CPU usage
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/ctrl/cpu/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "cpu" not in resp_json:
+        return "Unable to obtain MARS controller CPU usage."
+
+    if not resp_json["cpu"]:
+        return "No controller CPU usage statistics."
+
+    # In cpu_usage_data_dict, including the CPU usage of each controller at each time point,
+    # and the average CPU usage. CPU usage list is sorted from oldest to newest.
+    # e.g. {"<controller IP>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "cpu_usage_list": [<CPU usage>, ...],
+    #           "cpu_usage_avg": <CPU usage average>
+    #      }
+    cpu_usage_data_dict = {}
+    for cpu in resp_json["cpu"]:
+        host = cpu.get("host")
+        resources = cpu.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        cpu_usage_sum = 0
+        cpu_usage_list = []
+        for resource in resources:
+            used_percent = round(100 - resource.get("idle_percent"), 2)
+            cpu_usage_sum += used_percent
+            cpu_usage_list.append(used_percent)
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(resource["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+        cpu_usage_avg = cpu_usage_sum / len(resources)
+        cpu_usage_data_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "cpu_usage_list": cpu_usage_list,
+            "cpu_usage_avg": cpu_usage_avg
+        }
+    
+    # item[0] is dict key
+    # item[1] is dict value
+    cpu_usage_top_10 = sorted(
+        cpu_usage_data_dict.items(),
+        key=lambda item: item[1]["cpu_usage_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(cpu_usage_top_10, "cpu_usage_list")
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="控制器CPU前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "CPU usage (%)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_controller_memory_top_10_chart() -> str:
+    """Get MARS controller memory top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten controller names and controller memory usage based on memory usage.
+    """
+    # Get MARS controller memory usage
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/ctrl/memory/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "memory" not in resp_json:
+        return "Unable to obtain MARS controller memory usage."
+
+    if not resp_json["memory"]:
+        return "No controller memory usage statistics."
+
+    # In memory_usage_data_dict, including the memory usage of each controller at each time point,
+    # and the average memory usage. memory usage list is sorted from oldest to newest.
+    # e.g. {"<controller IP>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "memory_usage_list": [<memory usage>, ...],
+    #           "memory_usage_avg": <memory usage average>
+    #      }
+    memory_usage_data_dict = {}
+    for memory in resp_json["memory"]:
+        host = memory.get("host")
+        resources = memory.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        memory_usage_sum = 0
+        memory_usage_list = []
+        for resource in resources:
+            used_percent = round(resource.get("used_percent"), 2)
+            memory_usage_sum += used_percent
+            memory_usage_list.append(used_percent)
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(resource["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+        memory_usage_avg = memory_usage_sum / len(resources)
+        memory_usage_data_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "memory_usage_list": memory_usage_list,
+            "memory_usage_avg": memory_usage_avg
+        }
+    
+    # item[0] is dict key
+    # item[1] is dict value
+    memory_usage_top_10 = sorted(
+        memory_usage_data_dict.items(),
+        key=lambda item: item[1]["memory_usage_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(memory_usage_top_10, "memory_usage_list")
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="控制器記憶體前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Memory usage (%)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_controller_disk_top_10_chart() -> str:
+    """Get MARS controller disk top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten controller names and controller disk usage based on disk usage.
+    """
+    # Get MARS controller disk usage
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/ctrl/disk/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "disk" not in resp_json:
+        return "Unable to obtain MARS controller disk usage."
+
+    if not resp_json["disk"]:
+        return "No controller disk usage statistics."
+
+    # In disk_usage_data_dict, including the disk usage of each controller at each time point,
+    # and the average disk usage. disk usage list is sorted from oldest to newest.
+    # e.g. {"<controller IP>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "disk_usage_list": [<disk usage>, ...],
+    #           "disk_usage_avg": <disk usage average>
+    #      }
+    disk_usage_data_dict = {}
+    for disk in resp_json["disk"]:
+        host = disk.get("host")
+        resources = disk.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        disk_usage_sum = 0
+        disk_usage_list = []
+        for resource in resources:
+            used_percent = round(resource.get("used_percent"), 2)
+            disk_usage_sum += used_percent
+            disk_usage_list.append(used_percent)
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(resource["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+        disk_usage_avg = disk_usage_sum / len(resources)
+        disk_usage_data_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "disk_usage_list": disk_usage_list,
+            "disk_usage_avg": disk_usage_avg
+        }
+    
+    # item[0] is dict key
+    # item[1] is dict value
+    disk_usage_top_10 = sorted(
+        disk_usage_data_dict.items(),
+        key=lambda item: item[1]["disk_usage_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(disk_usage_top_10, "disk_usage_list")
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="控制器硬碟前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Disk usage (%)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_controller_sent_bytes_traffic_top_10_chart() -> str:
+    """Get MARS controller sent bytes traffic top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten controller names and controller sent bytes based on network throughput.
+    """
+   # Get MARS controller management port statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/ctrl_mgmt_ports/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "portstats" not in resp_json:
+        return "Unable to obtain MARS controller management port statistics."
+
+    if not resp_json["portstats"]:
+        return "No controller management port statistics."
+
+    # In controller_sent_bytes_dict, including the sent throughput of each controller at each time point,
+    # and the average sent throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<controller IP>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "throughput_list": [<sent throughput>, ...],
+    #           "throughput_avg": <sent throughput average>}
+    #      }
+    controller_sent_bytes_dict = {}
+    for stats in resp_json["portstats"]:
+        host = stats.get("host")
+        resources = stats.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        throughput_sum = 0
+        throughput_list = []
+        for i in range(1, len(resources)):
+            current = resources[i]
+            previous = resources[i - 1]
+
+            # Calculate the delta of each data point
+            # and divide it by the interval time to get the sent throughput.
+            bytes_prev = previous["bytesSent"]
+            bytes_curr = current["bytesSent"]
+
+            delta_bytes = bytes_curr - bytes_prev
+            throughput_bps = round(delta_bytes / resolution_second, 2) # bytes/sec
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+            throughput_sum += throughput_bps
+            throughput_list.append(throughput_bps)
+
+        throughput_avg = throughput_sum / len(resources)
+        controller_sent_bytes_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
+        }
+
+    # item[0] is dict key
+    # item[1] is dict value
+    sent_bytes_top_10 = sorted(
+        controller_sent_bytes_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(sent_bytes_top_10, "throughput_list")
+
+    # Iterate over all values ​​and get the maximum and minimum values
+    all_values_list = list(chain.from_iterable(param["chart_multiple_values_list"]))
+    range_min = min(all_values_list)
+    range_max = max(all_values_list)
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="控制器發送位元組流量前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Sent throughput (bytes/sec)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
+                range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
+            ))
+
+@mcp.tool()
+async def mars_get_controller_received_bytes_traffic_top_10_chart() -> str:
+    """Get MARS controller received bytes traffic top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten controller names and controller received bytes based on network throughput.
+    """
+   # Get MARS controller management port statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/ctrl_mgmt_ports/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "portstats" not in resp_json:
+        return "Unable to obtain MARS controller management port statistics."
+
+    if not resp_json["portstats"]:
+        return "No controller management port statistics."
+
+    # In controller_received_bytes_dict, including the received throughput of each controller at each time point,
+    # and the average received throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<controller IP>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "throughput_list": [<received throughput>, ...],
+    #           "throughput_avg": <received throughput average>}
+    #      }
+    controller_received_bytes_dict = {}
+    for stats in resp_json["portstats"]:
+        host = stats.get("host")
+        resources = stats.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        throughput_sum = 0
+        throughput_list = []
+        for i in range(1, len(resources)):
+            current = resources[i]
+            previous = resources[i - 1]
+
+            # Calculate the delta of each data point
+            # and divide it by the interval time to get the received throughput.
+            bytes_prev = previous["bytesReceived"]
+            bytes_curr = current["bytesReceived"]
+
+            delta_bytes = bytes_curr - bytes_prev
+            throughput_bps = round(delta_bytes / resolution_second, 2) # bytes/sec
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+            throughput_sum += throughput_bps
+            throughput_list.append(throughput_bps)
+
+        throughput_avg = throughput_sum / len(resources)
+        controller_received_bytes_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
+        }
+
+    # item[0] is dict key
+    # item[1] is dict value
+    received_bytes_top_10 = sorted(
+        controller_received_bytes_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(received_bytes_top_10, "throughput_list")
+
+    # Iterate over all values ​​and get the maximum and minimum values
+    all_values_list = list(chain.from_iterable(param["chart_multiple_values_list"]))
+    range_min = min(all_values_list)
+    range_max = max(all_values_list)
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="控制器接收位元組流量前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Received throughput (bytes/sec)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
+                range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
+            ))
+
+@mcp.tool()
+async def mars_get_controller_sent_packets_traffic_top_10_chart() -> str:
+    """Get MARS controller sent packets traffic top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten controller names and controller sent packets based on network throughput.
+    """
+   # Get MARS controller management port statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/ctrl_mgmt_ports/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "portstats" not in resp_json:
+        return "Unable to obtain MARS controller management port statistics."
+
+    if not resp_json["portstats"]:
+        return "No controller management port statistics."
+
+    # In controller_sent_packets_dict, including the sent throughput of each controller at each time point,
+    # and the average sent throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<controller IP>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "throughput_list": [<sent throughput>, ...],
+    #           "throughput_avg": <sent throughput average>}
+    #      }
+    controller_sent_packets_dict = {}
+    for stats in resp_json["portstats"]:
+        host = stats.get("host")
+        resources = stats.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        throughput_sum = 0
+        throughput_list = []
+        for i in range(1, len(resources)):
+            current = resources[i]
+            previous = resources[i - 1]
+
+            # Calculate the delta of each data point
+            # and divide it by the interval time to get the sent throughput.
+            packets_prev = previous["packetsSent"]
+            packets_curr = current["packetsSent"]
+
+            delta_packets = packets_curr - packets_prev
+            throughput_pps = round(delta_packets / resolution_second, 2) # packets/sec
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+            throughput_sum += throughput_pps
+            throughput_list.append(throughput_pps)
+
+        throughput_avg = throughput_sum / len(resources)
+        controller_sent_packets_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
+        }
+
+    # item[0] is dict key
+    # item[1] is dict value
+    sent_packets_top_10 = sorted(
+        controller_sent_packets_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(sent_packets_top_10, "throughput_list")
+
+    # Iterate over all values ​​and get the maximum and minimum values
+    all_values_list = list(chain.from_iterable(param["chart_multiple_values_list"]))
+    range_min = min(all_values_list)
+    range_max = max(all_values_list)
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="控制器發送封包流量前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Sent throughput (packets/sec)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
+                range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
+            ))
+
+@mcp.tool()
+async def mars_get_controller_received_packets_traffic_top_10_chart() -> str:
+    """Get MARS controller received packets traffic top 10 chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten controller names and controller received packets based on network throughput.
+    """
+   # Get MARS controller management port statistics
+    time_now = datetime.now(timezone.utc)
+    time_10_min_ago = (time_now - timedelta(minutes=10))
+
+    time_start = time_10_min_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 60
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/ctrl_mgmt_ports/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "portstats" not in resp_json:
+        return "Unable to obtain MARS controller management port statistics."
+
+    if not resp_json["portstats"]:
+        return "No controller management port statistics."
+
+    # In controller_received_packets_dict, including the received throughput of each controller at each time point,
+    # and the average received throughput. Throughput list is sorted from oldest to newest.
+    # e.g. {"<controller IP>": {
+    #           "timepoint_list": [<timepoint>, ...],
+    #           "throughput_list": [<received throughput>, ...],
+    #           "throughput_avg": <received throughput average>}
+    #      }
+    controller_received_packets_dict = {}
+    for stats in resp_json["portstats"]:
+        host = stats.get("host")
+        resources = stats.get("resources")[-10:]
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        timepoint_list = []
+        throughput_sum = 0
+        throughput_list = []
+        for i in range(1, len(resources)):
+            current = resources[i]
+            previous = resources[i - 1]
+
+            # Calculate the delta of each data point
+            # and divide it by the interval time to get the received throughput.
+            packets_prev = previous["packetsReceived"]
+            packets_curr = current["packetsReceived"]
+
+            delta_packets = packets_curr - packets_prev
+            throughput_pps = round(delta_packets / resolution_second, 2) # packets/sec
+
+            # Adjust the time format to avoid the problem of too long strings
+            utc_dt = datetime.fromisoformat(current["timepoint"].replace("Z", ""))
+            local_dt = utc_dt + timedelta(hours=8) # UTC+8
+            timepoint = local_dt.strftime("%H:%M:%S")
+            timepoint_list.append(timepoint)
+
+            throughput_sum += throughput_pps
+            throughput_list.append(throughput_pps)
+
+        throughput_avg = throughput_sum / len(resources)
+        controller_received_packets_dict[host] = {
+            "timepoint_list": timepoint_list,
+            "throughput_list": throughput_list,
+            "throughput_avg": throughput_avg
+        }
+
+    # item[0] is dict key
+    # item[1] is dict value
+    received_packets_top_10 = sorted(
+        controller_received_packets_dict.items(),
+        key=lambda item: item[1]["throughput_avg"],
+        reverse=True
+    )[:10]
+
+    param = convert_mars_analyzer_chart_parameters(received_packets_top_10, "throughput_list")
+
+    # Iterate over all values ​​and get the maximum and minimum values
+    all_values_list = list(chain.from_iterable(param["chart_multiple_values_list"]))
+    range_min = min(all_values_list)
+    range_max = max(all_values_list)
+
+    return (mermaid_chart_count_prompt() +
+            generate_multiple_line_chart(
+                title ="控制器接收封包流量前10名",
+                x_axis_name = param["chart_label"],
+                y_axis_name = "Received throughput (packets/sec)",
+                keys = param["chart_timepoint_list"],
+                values = param["chart_multiple_values_list"],
+                range_min = math.floor(range_min / 5) * 5, # Round down to the nearest multiple of 5
+                range_max = math.ceil(range_max / 5) * 5 # Round up to the nearest multiple of 5
+            ))
+
+### 交換器資產資料
+@mcp.tool()
+async def mars_get_switch_cpu_usage_string(name: str) -> str:
+    """Get MARS specified switch CPU usage.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Args:
+        name: Switch name sting
+
+    Returns:
+        Returns a string containing specified switch name and switch CPU usage.
+    """
+    # Get MARS switch CPU usage
+    time_now = datetime.now(timezone.utc)
+    time_30_sec_ago = (time_now - timedelta(seconds=30))
+
+    time_start = time_30_sec_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 15
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/cpu/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "cpu" not in resp_json:
+        return "Unable to obtain MARS switch CPU usage."
+
+    if not resp_json["cpu"]:
+        return "No switch CPU usage statistics."
+
+    for cpu in resp_json["cpu"]:
+        host = cpu.get("host")
+        if host == name:
+            resources = cpu.get("resources")
+
+            # Check if resources has data
+            if not resources:
+                return "No switch resources."
+
+            # Obtain the first resource information
+            resource = resources[0]
+            
+            return (
+                f"Switch name: {host}\n"
+                f"CPU usage: {resource.get("used_percent")}%"
+            )
+
+    return "Switch is not found."
+
+@mcp.tool()
+async def mars_get_switch_memory_usage_string(name: str) -> str:
+    """Get MARS specified switch memory usage.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Args:
+        name: Switch name sting
+
+    Returns:
+        Returns a string containing specified switch name and switch memory usage.
+    """
+    # Get MARS switch memory usage
+    time_now = datetime.now(timezone.utc)
+    time_30_sec_ago = (time_now - timedelta(seconds=30))
+
+    time_start = time_30_sec_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 15
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/memory/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "memory" not in resp_json:
+        return "Unable to obtain MARS switch memory usage."
+
+    if not resp_json["memory"]:
+        return "No switch memory usage statistics."
+
+    for memory in resp_json["memory"]:
+        host = memory.get("host")
+        if host == name:
+            resources = memory.get("resources")
+
+            # Check if resources has data
+            if not resources:
+                return "No switch resources."
+
+            # Obtain the first resource information
+            resource = resources[0]
+            
+            return (
+                f"Switch name: {host}\n"
+                f"Memory usage: {resource.get("used_percent")}%"
+            )
+
+    return "Switch is not found."
+
+@mcp.tool()
+async def mars_get_switch_disk_usage_string(name: str) -> str:
+    """Get MARS specified switch disk usage.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Args:
+        name: Switch name sting
+
+    Returns:
+        Returns a string containing specified switch name and switch disk usage.
+    """
+    # Get MARS switch disk usage
+    time_now = datetime.now(timezone.utc)
+    time_30_sec_ago = (time_now - timedelta(seconds=30))
+
+    time_start = time_30_sec_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 15
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/disk/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "disk" not in resp_json:
+        return "Unable to obtain MARS switch disk usage."
+
+    if not resp_json["disk"]:
+        return "No switch disk usage statistics."
+
+    for disk in resp_json["disk"]:
+        host = disk.get("host")
+        if host == name:
+            resources = disk.get("resources")
+
+            # Check if resources has data
+            if not resources:
+                return "No switch resources."
+
+            # Obtain the first resource information
+            resource = resources[0]
+            
+            return (
+                f"Switch name: {host}\n"
+                f"Disk usage: {resource.get("used_percent")}%"
+            )
+
+    return "Switch is not found."
+
+@mcp.tool()
+async def mars_get_switch_temperature_status_string(name: str) -> str:
+    """Get MARS specified switch temperature status.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Args:
+        name: Switch name sting
+
+    Returns:
+        Returns a string containing specified switch temperature sensor's index, name, status and temperature value.
+    """
+    # Get MARS devices config
+    url = f"{MARS_SERVER_URL}/mars/v1/devices/config"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "configs" not in resp_json:
+        return "Unable to obtain MARS switch configs."
+
+    if not resp_json["configs"]:
+        return "No switch configs."
+
+    switch_id = None
+    for config in resp_json["configs"]:
+        switch_name = config.get("name")
+        if config.get("name") == name:
+            switch_id = config.get("id")
+            break
+
+    if not switch_id:
+        return "Switch is not found."
+
+    # Get MARS temperature status
+    url = f"{MARS_SERVER_URL}/mars/healthycheck/v1/sensors/{switch_id}/temp"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "temps" not in resp_json:
+        return "Unable to obtain MARS switch temperature status."
+
+    if not resp_json["temps"]:
+        return "No switch temperature status."
+
+    results = []
+    for temp in resp_json["temps"]:
+        result_str = (
+            f"Index: {temp.get("index")}\n"
+            f"Name: {temp.get("name")}\n"
+            f"Status: {temp.get("status")}\n"
+            f"Temperature: {temp.get("value")} °C"
+        )
+        results.append(result_str.strip()) # Remove extra indentation spaces
+
+    return "\n---\n".join(results)
+
+@mcp.tool()
+async def mars_get_switch_fan_status_string(name: str) -> str:
+    """Get MARS specified switch fan status.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Args:
+        name: Switch name sting
+
+    Returns:
+        Returns a string containing specified switch fan's index, name, status and speed.
+    """
+    # Get MARS devices config
+    url = f"{MARS_SERVER_URL}/mars/v1/devices/config"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "configs" not in resp_json:
+        return "Unable to obtain MARS switch configs."
+
+    if not resp_json["configs"]:
+        return "No switch configs."
+
+    switch_id = None
+    for config in resp_json["configs"]:
+        switch_name = config.get("name")
+        if config.get("name") == name:
+            switch_id = config.get("id")
+            break
+
+    if not switch_id:
+        return "Switch is not found."
+
+    # Get MARS fan status
+    url = f"{MARS_SERVER_URL}/mars/healthycheck/v1/sensors/{switch_id}/fan"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "fans" not in resp_json:
+        return "Unable to obtain MARS switch fan status."
+
+    if not resp_json["fans"]:
+        return "No switch fan status."
+
+    results = []
+    for fan in resp_json["fans"]:
+        result_str = (
+            f"Index: {fan.get("index")}\n"
+            f"Name: {fan.get("name")}\n"
+            f"Status: {fan.get("status")}\n"
+            f"Speed: {fan.get("RPM")} RPM"
+        )
+        results.append(result_str.strip()) # Remove extra indentation spaces
+
+    return "\n---\n".join(results)
+
+@mcp.tool()
+async def mars_get_switch_power_supply_unit_status_string(name: str) -> str:
+    """Get MARS specified switch power supply unit status.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Args:
+        name: Switch name sting
+
+    Returns:
+        Returns a string containing specified switch power supply unit's index, name, status,
+        input/output current, input/output voltage and input/output power.
+    """
+    # Get MARS devices config
+    url = f"{MARS_SERVER_URL}/mars/v1/devices/config"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "configs" not in resp_json:
+        return "Unable to obtain MARS switch configs."
+
+    if not resp_json["configs"]:
+        return "No switch configs."
+
+    switch_id = None
+    for config in resp_json["configs"]:
+        switch_name = config.get("name")
+        if config.get("name") == name:
+            switch_id = config.get("id")
+            break
+
+    if not switch_id:
+        return "Switch is not found."
+
+    # Get MARS psu status
+    url = f"{MARS_SERVER_URL}/mars/healthycheck/v1/sensors/{switch_id}/psu"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "psus" not in resp_json:
+        return "Unable to obtain MARS switch power supply unit status."
+
+    if not resp_json["psus"]:
+        return "No switch power supply unit status."
+
+    results = []
+    for psu in resp_json["psus"]:
+        result_str = (
+            f"Index: {psu.get("index")}\n"
+            f"Name: {psu.get("name")}\n"
+            f"Status: {psu.get("status")}\n"
+            f"Input current: {psu.get("iin")} mA\n"
+            f"Output current: {psu.get("iout")} mA\n"
+            f"Input voltage: {psu.get("vin")} mV\n"
+            f"Output voltage: {psu.get("vout")} mV\n"
+            f"Input power: {psu.get("pin")} mW\n"
+            f"Output power: {psu.get("pout")} mW"
+        )
+        results.append(result_str.strip()) # Remove extra indentation spaces
+
+    return "\n---\n".join(results)
+
+@mcp.tool()
+async def mars_get_switch_cpu_realtime_status_chart() -> str:
+    """Get MARS switch CPU realtime status chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch CPU usage based on CPU usage.
+    """
+    # Get MARS switch CPU usage
+    time_now = datetime.now(timezone.utc)
+    time_30_sec_ago = (time_now - timedelta(seconds=30))
+
+    time_start = time_30_sec_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 15
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/cpu/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "cpu" not in resp_json:
+        return "Unable to obtain MARS switch CPU usage."
+
+    if not resp_json["cpu"]:
+        return "No switch CPU usage statistics."
+
+    cpu_usage_data_list = []
+    for cpu in resp_json["cpu"]:
+        host = cpu.get("host")
+        resources = cpu.get("resources")
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        # Obtain the first resource information
+        resource = resources[0]
+
+        # Check if used_percent exists
+        used_percent = resource.get("used_percent")
+        if used_percent is None:
+            continue
+
+        cpu_usage_data_list.append((host, used_percent))
+
+    cpu_usage_top_10 = sorted(cpu_usage_data_list, key=lambda x: x[1], reverse=True)[:10]
+
+    return (mermaid_chart_count_prompt() +
+            generate_bar_chart(
+                title ="交換器CPU即時狀態",
+                x_axis_name = "",
+                y_axis_name = "CPU usage (%)",
+                keys = [item[0] for item in cpu_usage_top_10],
+                values = [item[1] for item in cpu_usage_top_10],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_switch_memory_realtime_status_chart() -> str:
+    """Get MARS switch memory realtime status chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch memory usage based on memory usage.
+    """
+    # Get MARS switch memory usage
+    time_now = datetime.now(timezone.utc)
+    time_30_sec_ago = (time_now - timedelta(seconds=30))
+
+    time_start = time_30_sec_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 15
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/memory/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "memory" not in resp_json:
+        return "Unable to obtain MARS switch memory usage."
+
+    if not resp_json["memory"]:
+        return "No switch memory usage statistics."
+
+    memory_usage_data_list = []
+    for memory in resp_json["memory"]:
+        host = memory.get("host")
+        resources = memory.get("resources")
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        # Obtain the first resource information
+        resource = resources[0]
+
+        # Check if used_percent exists
+        used_percent = resource.get("used_percent")
+        if used_percent is None:
+            continue
+
+        memory_usage_data_list.append((host, used_percent))
+
+    memory_usage_top_10 = sorted(memory_usage_data_list, key=lambda x: x[1], reverse=True)[:10]
+
+    return (mermaid_chart_count_prompt() +
+            generate_bar_chart(
+                title ="交換器記憶體即時狀態",
+                x_axis_name = "",
+                y_axis_name = "Memory usage (%)",
+                keys = [item[0] for item in memory_usage_top_10],
+                values = [item[1] for item in memory_usage_top_10],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_switch_disk_realtime_status_chart() -> str:
+    """Get MARS switch disk realtime status chart.
+    If the UI supports Mermaid.js, the chart must be rendered directly.
+    This is for MCP tools, automatic inference will cause errors.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns Mermaid.js chart syntax of the top ten switch names and switch disk usage based on disk usage.
+    """
+    # Get MARS switch disk usage
+    time_now = datetime.now(timezone.utc)
+    time_30_sec_ago = (time_now - timedelta(seconds=30))
+
+    time_start = time_30_sec_ago.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    time_end = time_now.isoformat(timespec='seconds').replace('+00:00', 'Z')
+    resolution_second = 15
+    url = f"{MARS_SERVER_URL}/mars/analyzer/v1/timerangebar_all/switch/disk/{time_start}/{time_end}/{resolution_second}"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json or "disk" not in resp_json:
+        return "Unable to obtain MARS switch disk usage."
+
+    if not resp_json["disk"]:
+        return "No switch disk usage statistics."
+
+    disk_usage_data_list = []
+    for disk in resp_json["disk"]:
+        host = disk.get("host")
+        resources = disk.get("resources")
+
+        # Check if resources has data
+        if not resources:
+            continue
+
+        # Obtain the first resource information
+        resource = resources[0]
+
+        # Check if used_percent exists
+        used_percent = resource.get("used_percent")
+        if used_percent is None:
+            continue
+
+        disk_usage_data_list.append((host, used_percent))
+
+    disk_usage_top_10 = sorted(disk_usage_data_list, key=lambda x: x[1], reverse=True)[:10]
+
+    return (mermaid_chart_count_prompt() +
+            generate_bar_chart(
+                title ="交換器硬碟即時狀態",
+                x_axis_name = "",
+                y_axis_name = "Disk usage (%)",
+                keys = [item[0] for item in disk_usage_top_10],
+                values = [item[1] for item in disk_usage_top_10],
+                range_min = 0,
+                range_max = 100
+            ))
+
+@mcp.tool()
+async def mars_get_license_summary_string() -> str:
+    """Get MARS license summary.
+
+    Note:
+        MARS is a hardware independent controller for building
+        Software Defined Networking(SDN) and Network Function Virtualization(NFV) solutions.
+
+    Returns:
+        Returns a string containing MARS system license's valid value, scenario,
+        max switches and expiration date.
+    """
+    # Get MARS license
+    url = f"{MARS_SERVER_URL}/mars/v1/license/v1"
+    response = await mars_get_request(url)
+    resp_json = response.json()
+
+    if not resp_json:
+        return "Unable to obtain MARS license summary."
+
+    timestamp_ms = resp_json.get('expirationTime')
+    dt = datetime.fromtimestamp(timestamp_ms / 1000) # Convert to second
+    date_str = dt.strftime("%Y-%m-%d")
+
+    return (
+        f"Valid value: {resp_json.get('valid')}\n"
+        f"Scenario: {resp_json.get('scenario', 'Unknown')}\n"
+        f"Max switches: {resp_json.get('maxSwitches')}\n"
+        f"Expiration date: {date_str}"
+    )
 
 ### Call MARS API related functions ###
 async def get_mars_cookies():
@@ -2672,7 +3930,7 @@ def read_root():
     return {"message": "MCP SSE Server is running"}
 
 if __name__ == "__main__":
-    test = asyncio.run(mars_get_switch_cpu_top_10_chart())
+    test = asyncio.run(mars_get_license_summary_string())
     print(test)
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5050)
